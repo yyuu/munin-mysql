@@ -217,6 +217,12 @@ sub main {
     else {
         if ($command eq 'show') {
             collect_data();
+            if ($data->{_master_insufficient_privileges}) {
+                print STDERR "Can't show data about replication master: $data->{_master_insufficient_privileges}.\n";
+            }
+            if ($data->{_slave_insufficient_privileges}) {
+                print STDERR "Can't show data about replication slave: $data->{_slave_insufficient_privileges}.\n";
+            }
         }
         for my $graph (sort keys %graphs) {
             print "multigraph $graph$instance\n";
@@ -409,7 +415,16 @@ sub update_master {
     return if $data->{log_bin} eq 'OFF';
 
     my $sth = $dbh->prepare('SHOW MASTER LOGS');
-    $sth->execute();
+    eval {
+      $sth->execute();
+    };
+    if ($@) {
+      if ($@ =~ /Access denied/) {
+        $data->{_master_insufficient_privileges} = $@;
+        return 1;
+      }
+      die $@;
+    }
     while (my $row = $sth->fetch) {
         $data->{ma_binlog_size} += $row->[1];
     }
@@ -422,7 +437,16 @@ sub update_slave {
     my ($dbh) = @_;
 
     my $sth = $dbh->prepare('SHOW SLAVE STATUS');
-    $sth->execute();
+    eval {
+      $sth->execute();
+    };
+    if ($@) {
+      if ($@ =~ /Access denied/) {
+        $data->{_slave_insufficient_privileges} = $@;
+        return 1;
+      }
+      die $@;
+    }
     my $row = $sth->fetchrow_hashref();
     return unless $row;
     while (my ($k, $v) = each %$row) {
